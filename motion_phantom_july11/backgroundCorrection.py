@@ -38,8 +38,8 @@ import vtk
 import vtk.util.numpy_support as vtkNumPy 
 
 FileNameTemplate = "/data/fuentes/biotex/MayoLiverDataJan2011/VTKData/226p-536/phase.%04d.vti"
-FileNameTemplate = "/home/jyung/e137/Processed/s22000/phase.%04d.vtk"
 FileNameTemplate = "/data/fuentes/mdacc/090612_rabbit2_9L033/s75187/phase.%04d.vtk"
+FileNameTemplate = "/home/jyung/e137/Processed/s22000/phase.%04d.vtk"
 # set the default reader based on extension
 if( FileNameTemplate.split(".").pop() == "vtk"):
    vtkImageReader = vtk.vtkDataSetReader
@@ -106,6 +106,7 @@ def ConvertNumpyVTKImage(NumpyImageData):
   dataImporter.SetDataExtent( 0, dimensions[0]-1, 0, dimensions[1]-1, 0, dimensions[2]-1)
   dataImporter.SetWholeExtent(0, dimensions[0]-1, 0, dimensions[1]-1, 0, dimensions[2]-1)
   dataImporter.SetDataSpacing( spacing )
+  dataImporter.SetDataOrigin(  origin  )
   dataImporter.Update()
   return dataImporter.GetOutput()
 
@@ -114,12 +115,12 @@ getpot = femLibrary.PylibMeshGetPot(PetscOptions)
 
 # initialize FEM Mesh
 femMesh = femLibrary.PylibMeshMesh()
-ROI = [[110,154],   # pixel # of xbounds
-       [130,164],   # pixel # of ybounds
-       [ 0, 0]]   # pixel # of zbounds
-#ROI = [[0,184],   # pixel # of xbounds
-#       [0,194],   # pixel # of ybounds
-#       [ 0, 0]]   # pixel # of zbounds
+ROI = [[100,150],   # pixel # of xbounds
+       [100,150],   # pixel # of ybounds
+       [  0,29]]   # pixel # of zbounds
+ROI = [[50,200],   # pixel # of xbounds
+       [50,200],   # pixel # of ybounds
+       [ 0,29]]   # pixel # of zbounds
 npixelROI = tuple( [ (pixel[1] - pixel[0] ) for pixel in ROI] )
 nelemROI  = [ (pixel[1] - pixel[0] - 1 ) for pixel in ROI] 
 if( nelemROI[2] < 0  ):
@@ -144,13 +145,6 @@ eqnSystems.init( )
 # print info
 eqnSystems.PrintSelf() 
   
-# create data structure for cumulative sum w/o background correction
-TempSumOrig = numpy.zeros(dimensions,dtype=numpy.double)
-# create data structure for cumulative sum w/ background correction
-TempSum     = numpy.zeros(dimensions,dtype=numpy.double)
-# shift/scale the phase data set data type to float
-phase_prev = GetNumpyPhaseData(FileNameTemplate % 0 ) 
-
 # create working dir
 os.system("mkdir -p Processed")
 
@@ -160,30 +154,17 @@ exodusII_IO = femLibrary.PylibMeshExodusII_IO(femMesh)
 exodusII_IO.WriteTimeStep(MeshOutputFile,eqnSystems, 1, 0.0 )  
 
 # loop over desired time instances
-ntime=93
+ntime=0
 for timeID in range(0,ntime+1):
    print "working on time id %d " % timeID
    # read in data
    phase_curr = GetNumpyPhaseData(FileNameTemplate % timeID ) 
    
-   # pixel wise subtract to create deltat image 
-   delta_temp =tmap_factor * (phase_curr - phase_prev) 
-   # store for next time
-   phase_prev = phase_curr.copy()
-
    # write original delta tmap 
-   vtkTempImage = ConvertNumpyVTKImage(delta_temp)
+   vtkTempImage = ConvertNumpyVTKImage(phase_curr)
    vtkTmpWriter = vtk.vtkDataSetWriter()
-   vtkTmpWriter.SetFileName("Processed/origdeltatemp.%04d.vtk" % timeID )
+   vtkTmpWriter.SetFileName("Processed/orthogphase.%04d.vtk" % timeID )
    vtkTmpWriter.SetInput(vtkTempImage)
-   vtkTmpWriter.Update()
-
-   # write original tmap
-   TempSumOrig = TempSumOrig + delta_temp
-   vtkTempImage = ConvertNumpyVTKImage(TempSumOrig )
-   vtkTmpWriter = vtk.vtkDataSetWriter()
-   vtkTmpWriter.SetFileName("Processed/origtemp.%04d.vtk" % timeID )
-   vtkTmpWriter.SetInput(vtkTempImage )
    vtkTmpWriter.Update()
 
    vtkImageMask = None
@@ -218,6 +199,7 @@ for timeID in range(0,ntime+1):
      #  vtkImageThresh.ThresholdByLower( 100.0* tmap_factor * 2.0*numpy.pi/4095.)
      #  vtkImageThresh.SetInput(vtkImageNorm.GetOutput())
      vtkImageThresh.Update( )
+     vtkImageMask = vtkImageThresh.GetOutput( )
    else: # if nothing available use 2D ROI as a mask
      # vtk uses fortran style storage
      numpyImageMask = 1.0 + numpy.zeros(dimensions,
@@ -251,7 +233,8 @@ for timeID in range(0,ntime+1):
    maxwell_data  = phase_curr.copy()
    # reshape from colume major Fortran-like storage
    maxwell_data[ROI[0][0]:ROI[0][1],
-                ROI[1][0]:ROI[1][1]] = maxwell_array.reshape( (npixelROI[0],npixelROI[1],1),order='F')
+                ROI[1][0]:ROI[1][1],
+                ROI[2][0]:ROI[2][1]] = maxwell_array.reshape( npixelROI ,order='F')
    # write numpy to disk in matlab
    scipyio.savemat("Processed/background.%04d.mat"%(timeID), {'maxwell':maxwell_array} )
    # check output
@@ -271,11 +254,3 @@ for timeID in range(0,ntime+1):
    vtkWriterTmpTwo.SetInput( vtkTempImage )
    vtkWriterTmpTwo.Update()
 
-   # write tmap
-   TempSum = TempSum + delta_temp
-   vtkTempImage = ConvertNumpyVTKImage( TempSum )
-   # check output
-   vtkTmpWriter3 = vtk.vtkXMLImageDataWriter()
-   vtkTmpWriter3.SetFileName("Processed/temperature.%04d.vti" % timeID )
-   vtkTmpWriter3.SetInput( vtkTempImage )
-   vtkTmpWriter3.Update()
