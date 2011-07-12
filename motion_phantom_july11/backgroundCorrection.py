@@ -85,7 +85,7 @@ def GetNumpyPhaseData(filename):
   return phase_array.reshape(dimensions,order='F')
 
 # write a numpy data to disk in vtk format
-def ConvertNumpyVTKImage(NumpyImageData):
+def ConvertNumpyVTKImage(NumpyImageData, arrayName  ):
   # Create initial image
   # imports raw data and stores it.
   dataImporter = vtk.vtkImageImport()
@@ -107,6 +107,7 @@ def ConvertNumpyVTKImage(NumpyImageData):
   dataImporter.SetWholeExtent(0, dimensions[0]-1, 0, dimensions[1]-1, 0, dimensions[2]-1)
   dataImporter.SetDataSpacing( spacing )
   dataImporter.SetDataOrigin(  origin  )
+  dataImporter.SetScalarArrayName(  arrayName  )
   dataImporter.Update()
   return dataImporter.GetOutput()
 
@@ -161,7 +162,7 @@ for timeID in range(0,ntime+1):
    phase_curr = GetNumpyPhaseData(FileNameTemplate % timeID ) 
    
    # write original delta tmap 
-   vtkTempImage = ConvertNumpyVTKImage(phase_curr)
+   vtkTempImage = ConvertNumpyVTKImage(phase_curr,"orthogphase")
    vtkTmpWriter = vtk.vtkDataSetWriter()
    vtkTmpWriter.SetFileName("Processed/orthogphase.%04d.vtk" % timeID )
    vtkTmpWriter.SetInput(vtkTempImage)
@@ -208,7 +209,7 @@ for timeID in range(0,ntime+1):
      numpyImageMask[(ROI[0][0]+1):(ROI[0][1]-1),
                     (ROI[1][0]+1):(ROI[1][1]-1),:] = 0.0
      numpyImageMask.tofile("Processed/threshold.%04d.dat" % timeID )
-     vtkImageMask = ConvertNumpyVTKImage( numpyImageMask )
+     vtkImageMask = ConvertNumpyVTKImage( numpyImageMask , "theshold")
    # check output
    vtkWriter = vtk.vtkXMLImageDataWriter()
    vtkWriter.SetFileName("Processed/threshold.%04d.vti" % timeID )
@@ -238,7 +239,7 @@ for timeID in range(0,ntime+1):
    # write numpy to disk in matlab
    scipyio.savemat("Processed/background.%04d.mat"%(timeID), {'maxwell':maxwell_array} )
    # check output
-   vtkTempImage = ConvertNumpyVTKImage(maxwell_data)
+   vtkTempImage = ConvertNumpyVTKImage(maxwell_data,"maxwell")
    vtkWriterTmpTwo = vtk.vtkXMLImageDataWriter()
    vtkWriterTmpTwo.SetFileName("Processed/maxwell.%04d.vti" % timeID )
    vtkWriterTmpTwo.SetInput( vtkTempImage )
@@ -248,7 +249,7 @@ for timeID in range(0,ntime+1):
    delta_temp =tmap_factor * ( phase_curr - maxwell_data ) 
 
    # check output
-   vtkTempImage = ConvertNumpyVTKImage(delta_temp)
+   vtkTempImage = ConvertNumpyVTKImage(delta_temp,"deltat")
    vtkWriterTmpTwo = vtk.vtkXMLImageDataWriter()
    vtkWriterTmpTwo.SetFileName("Processed/deltat.%04d.vti" % timeID )
    vtkWriterTmpTwo.SetInput( vtkTempImage )
