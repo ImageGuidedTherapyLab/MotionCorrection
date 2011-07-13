@@ -4,4 +4,13 @@ repo for motion correction scripts
 
 
 090612_rabbit2_9L033/   contains gupta rabbit data
+
+>   cd 090612_rabbit2_9L033
+>   python tmap.py
+>   python backgroundCorrection2D.py
+
+
 motion_phantom_july11/  contains scripts for orthogonal plane phantom
+
+>   cd motion_phantom_july11
+>   python backgroundCorrection.py
