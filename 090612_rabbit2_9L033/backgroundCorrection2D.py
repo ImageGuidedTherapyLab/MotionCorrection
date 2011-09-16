@@ -137,8 +137,9 @@ femImaging = femLibrary.PytttkImaging(getpot, dimensions ,origin,spacing)
 
 # add the data structures for the Background System Solve
 eqnSystems =  femLibrary.PylibMeshEquationSystems(femMesh,getpot)
-eqnSystems.AddBackgroundSystem( "Background" ) 
-eqnSystems.AddExplicitSystem( "ImageMask" ,1,1 ) 
+bgSystem   = eqnSystems.AddBackgroundSystem( "Background" ) 
+maskSystem = eqnSystems.AddExplicitSystem( "ImageMask" ) 
+maskSystem.AddFirstLagrangeVariable( "mask" ) 
 # initialize libMesh data structures
 eqnSystems.init( ) 
 # print info
@@ -243,11 +244,11 @@ for timeID in range(0,ntime+1):
    # Project imaging onto libMesh data structures
    femImaging.ProjectImagingToFEMMesh("Background",0.0,v1,eqnSystems)  
    femImaging.ProjectImagingToFEMMesh("ImageMask" ,0.0,v2,eqnSystems)  
-   eqnSystems.SystemSolve( "Background" ) 
+   bgSystem.SystemSolve( ) 
    exodusII_IO.WriteTimeStep(MeshOutputFile,eqnSystems, timeID+1, timeID )  
 
    # get libMesh Background Solution as numpy data structure
-   maxwell_array = eqnSystems.GetSolutionVector( "Background" )[...]
+   maxwell_array = bgSystem.GetSolutionVector( )[...]
    maxwell_data  = phase_curr.copy()
    # reshape from colume major Fortran-like storage
    maxwell_data[ROI[0][0]:ROI[0][1],
