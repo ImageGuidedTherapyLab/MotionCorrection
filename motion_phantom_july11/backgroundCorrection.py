@@ -37,9 +37,11 @@ libMeshInit = femLibrary.PyLibMeshInit(PetscOptions,PETSc.COMM_WORLD)
 import vtk 
 import vtk.util.numpy_support as vtkNumPy 
 
-FileNameTemplate = "/data/fuentes/biotex/MayoLiverDataJan2011/VTKData/226p-536/phase.%04d.vti"
-FileNameTemplate = "/data/fuentes/mdacc/090612_rabbit2_9L033/s75187/phase.%04d.vtk"
-FileNameTemplate = "/home/jyung/e137/Processed/s22000/phase.%04d.vtk"
+#FileNameTemplate = "/data/fuentes/biotex/MayoLiverDataJan2011/VTKData/226p-536/phase.%04d.vti"
+#FileNameTemplate = "/data/fuentes/mdacc/090612_rabbit2_9L033/s75187/phase.%04d.vtk"
+#FileNameTemplate = "/home/jyung/e137/Processed/s22000/phase.%04d.vtk"
+FileNameTemplate = "/data/jyung/old/motion_phantom_july11/multiplanar/skip2/phaseROI.%04d.vtk"
+ 
 # set the default reader based on extension
 if( FileNameTemplate.split(".").pop() == "vtk"):
    vtkImageReader = vtk.vtkDataSetReader
@@ -116,12 +118,13 @@ getpot = femLibrary.PylibMeshGetPot(PetscOptions)
 
 # initialize FEM Mesh
 femMesh = femLibrary.PylibMeshMesh()
-ROI = [[100,150],   # pixel # of xbounds
-       [100,150],   # pixel # of ybounds
-       [  0,29]]   # pixel # of zbounds
-ROI = [[50,200],   # pixel # of xbounds
-       [50,200],   # pixel # of ybounds
-       [ 0,29]]   # pixel # of zbounds
+#ROI = [[100,150],   # pixel # of xbounds
+#       [100,150],   # pixel # of ybounds
+#       [  0,29]]   # pixel # of zbounds
+#ROI = [[50,200],   # pixel # of xbounds
+#       [50,200],   # pixel # of ybounds
+#       [ 0,29]]   # pixel # of zbounds
+ROI = [[0,150],[50,200],[0,29]]
 npixelROI = tuple( [ (pixel[1] - pixel[0] ) for pixel in ROI] )
 nelemROI  = [ (pixel[1] - pixel[0] - 1 ) for pixel in ROI] 
 if( nelemROI[2] < 0  ):
@@ -139,8 +142,9 @@ femImaging = femLibrary.PytttkImaging(getpot, dimensions ,origin,spacing)
 
 # add the data structures for the Background System Solve
 eqnSystems =  femLibrary.PylibMeshEquationSystems(femMesh,getpot)
-eqnSystems.AddBackgroundSystem( "Background" ) 
-eqnSystems.AddExplicitSystem( "ImageMask" ,1,1 ) 
+bgSystem   = eqnSystems.AddBackgroundSystem( "Background" ) 
+maskSystem = eqnSystems.AddExplicitSystem( "ImageMask" ) 
+maskSystem.AddFirstLagrangeVariable( "mask" ) 
 # initialize libMesh data structures
 eqnSystems.init( ) 
 # print info
@@ -226,7 +230,7 @@ for timeID in range(0,ntime+1):
    # Project imaging onto libMesh data structures
    femImaging.ProjectImagingToFEMMesh("Background",0.0,v1,eqnSystems)  
    femImaging.ProjectImagingToFEMMesh("ImageMask" ,0.0,v2,eqnSystems)  
-   eqnSystems.SystemSolve( "Background" ) 
+   bgSystem.SystemSolve( ) 
    exodusII_IO.WriteTimeStep(MeshOutputFile,eqnSystems, timeID+1, timeID )  
 
    # get libMesh Background Solution as numpy data structure
