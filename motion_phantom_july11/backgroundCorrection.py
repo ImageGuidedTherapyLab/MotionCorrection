@@ -40,19 +40,22 @@ import vtk.util.numpy_support as vtkNumPy
 #FileNameTemplate = "/data/fuentes/biotex/MayoLiverDataJan2011/VTKData/226p-536/phase.%04d.vti"
 #FileNameTemplate = "/data/fuentes/mdacc/090612_rabbit2_9L033/s75187/phase.%04d.vtk"
 #FileNameTemplate = "/home/jyung/e137/Processed/s22000/phase.%04d.vtk"
-FileNameTemplate = "/data/jyung/old/motion_phantom_july11/multiplanar/skip2/phaseROI.%04d.vtk"
+origFileNameTemplate = "/FUS4/data2/CABIR/BackgroundPhase19Dec2011/Processed/3DSPGRphase.%04d.vtk"
+dropFileNameTemplate = "/FUS4/data2/CABIR/BackgroundPhase19Dec2011/Processed/3DSPGRMSphase.%04d.vtk"
+maskFileNameTemplate = "/FUS4/data2/CABIR/BackgroundPhase19Dec2011/Processed/3DSPGRMSphasemask.%04d.vtk"
  
+
 # set the default reader based on extension
-if( FileNameTemplate.split(".").pop() == "vtk"):
+if( dropFileNameTemplate.split(".").pop() == "vtk"):
    vtkImageReader = vtk.vtkDataSetReader
-elif( FileNameTemplate.split(".").pop() == "vti"):
+elif( dropFileNameTemplate.split(".").pop() == "vti"):
    vtkImageReader = vtk.vtkXMLImageDataReader
 else:
    raise RuntimeError("uknown file")
 
 # get dimension info from header
 vtkSetupReader = vtkImageReader() 
-vtkSetupReader.SetFileName(FileNameTemplate % 0 ) 
+vtkSetupReader.SetFileName(dropFileNameTemplate % 0 ) 
 vtkSetupReader.Update() 
 dimensions = vtkSetupReader.GetOutput().GetDimensions()
 numberPointsImage =  vtkSetupReader.GetOutput().GetNumberOfPoints()
@@ -115,6 +118,7 @@ def ConvertNumpyVTKImage(NumpyImageData, arrayName  ):
 
 # store control variables
 getpot = femLibrary.PylibMeshGetPot(PetscOptions) 
+getpot.SetIniValue( "interpolate/nearest", "true" ) 
 
 # initialize FEM Mesh
 femMesh = femLibrary.PylibMeshMesh()
@@ -124,18 +128,24 @@ femMesh = femLibrary.PylibMeshMesh()
 #ROI = [[50,200],   # pixel # of xbounds
 #       [50,200],   # pixel # of ybounds
 #       [ 0,29]]   # pixel # of zbounds
-ROI = [[0,150],[50,200],[0,29]]
+ROI = [[120,140],[120,140],[20,29]]
+ROI = [[110,150],[110,150],[10,39]]
 npixelROI = tuple( [ (pixel[1] - pixel[0] ) for pixel in ROI] )
 nelemROI  = [ (pixel[1] - pixel[0] - 1 ) for pixel in ROI] 
 if( nelemROI[2] < 0  ):
    nelemROI[2] = 0 
 nelemROI  = tuple( nelemROI )
-xbounds = [ origin[0]+spacing[0]*(ROI[0][0]+0.5),origin[0]+spacing[0]*(ROI[0][1]+0.5) ]
-ybounds = [ origin[1]+spacing[1]*(ROI[1][0]+0.5),origin[1]+spacing[1]*(ROI[1][1]+0.5) ]
-zbounds = [ origin[2]+spacing[2]*(ROI[2][0]+0.5),origin[2]+spacing[2]*(ROI[2][1]+0.5) ]
+xbounds = [ origin[0]+spacing[0]*(ROI[0][0]+0.5),origin[0]+spacing[0]*(ROI[0][1]-0.5) ]
+ybounds = [ origin[1]+spacing[1]*(ROI[1][0]+0.5),origin[1]+spacing[1]*(ROI[1][1]-0.5) ]
+zbounds = [ origin[2]+spacing[2]*(ROI[2][0]+0.5),origin[2]+spacing[2]*(ROI[2][1]-0.5) ]
 # setup structure Grid expect # of elements
 femMesh.SetupStructuredGrid( nelemROI , 
                              xbounds,ybounds,zbounds,[1,1,1,1,1,1]) 
+print "xbounds", xbounds
+print "ybounds", ybounds
+print "zbounds", zbounds
+print "npixelROI", npixelROI
+print "nelemROI" , nelemROI
 
 # setup imaging to interpolate onto FEM mesh
 femImaging = femLibrary.PytttkImaging(getpot, dimensions ,origin,spacing) 
@@ -145,6 +155,9 @@ eqnSystems =  femLibrary.PylibMeshEquationSystems(femMesh,getpot)
 bgSystem   = eqnSystems.AddBackgroundSystem( "Background" ) 
 maskSystem = eqnSystems.AddExplicitSystem( "ImageMask" ) 
 maskSystem.AddFirstLagrangeVariable( "mask" ) 
+# create system for original data to compare to
+origSystem = eqnSystems.AddExplicitSystem( "OrigImage" ) 
+origSystem.AddFirstLagrangeVariable( "b*" ) 
 # initialize libMesh data structures
 eqnSystems.init( ) 
 # print info
@@ -162,100 +175,64 @@ exodusII_IO.WriteTimeStep(MeshOutputFile,eqnSystems, 1, 0.0 )
 ntime=0
 for timeID in range(0,ntime+1):
    print "working on time id %d " % timeID
-   # read in data
-   phase_curr = GetNumpyPhaseData(FileNameTemplate % timeID ) 
    
-   # write original delta tmap 
-   vtkTempImage = ConvertNumpyVTKImage(phase_curr,"orthogphase")
-   vtkTmpWriter = vtk.vtkDataSetWriter()
-   vtkTmpWriter.SetFileName("Processed/orthogphase.%04d.vtk" % timeID )
-   vtkTmpWriter.SetInput(vtkTempImage)
-   vtkTmpWriter.Update()
+   # read original data 
+   vtkOrigReader = vtk.vtkDataSetReader() 
+   vtkOrigReader.SetFileName(origFileNameTemplate % timeID ) 
+   vtkOrigReader.Update() 
+   orig_cells = vtkOrigReader.GetOutput() 
+   orig_array = vtkNumPy.vtk_to_numpy( orig_cells.GetPointData().GetArray(0) ) 
 
-   vtkImageMask = None
-   #default look for a user defined image mask
-   maskFileName = "%s/SNRuncert.%04d.vtk" %  (
-                 FileNameTemplate[:FileNameTemplate.rfind("/")],timeID)
-   if( os.path.isfile( maskFileName ) ):
-     vtkMaskReader = vtk.vtkDataSetReader() 
-     vtkMaskReader.SetFileName( maskFileName ) 
-     vtkMaskReader.Update() 
-     # get image mask
-     vtkImageThresh = vtk.vtkImageThreshold() 
-     vtkImageThresh.ReplaceOutOn()
-     vtkImageThresh.SetOutValue(0.0)
-     vtkImageThresh.ReplaceInOn()
-     vtkImageThresh.SetInValue(1.0)
-     vtkImageThresh.SetOutputScalarTypeToDouble()
-     # set threshold
-     vtkImageThresh.ThresholdByLower( 100.0)
-     vtkImageThresh.SetInput(vtkMaskReader.GetOutput())
-     #else: # use gradient as threshold
-     #  vtkPhaseData = ConvertNumpyVTKImage( phase_curr )
-     #  vtkGradientImage = vtk.vtkImageGradient() 
-     #  vtkGradientImage.SetInput(vtkPhaseData) 
-     #  vtkGradientImage.Update() 
-     #  
-     #  # take magnitude of gradient
-     #  vtkImageNorm = vtk.vtkImageMagnitude() 
-     #  vtkImageNorm.SetInput(vtkGradientImage.GetOutput())
-     #  vtkImageNorm.Update() 
-     #  # set threshold
-     #  vtkImageThresh.ThresholdByLower( 100.0* tmap_factor * 2.0*numpy.pi/4095.)
-     #  vtkImageThresh.SetInput(vtkImageNorm.GetOutput())
-     vtkImageThresh.Update( )
-     vtkImageMask = vtkImageThresh.GetOutput( )
-   else: # if nothing available use 2D ROI as a mask
-     # vtk uses fortran style storage
-     numpyImageMask = 1.0 + numpy.zeros(dimensions,
-                                        dtype=numpy.double,order='F')
-     # TODO: numpy seems to index in the transpose of VTK ? 
-     numpyImageMask[(ROI[0][0]+1):(ROI[0][1]-1),
-                    (ROI[1][0]+1):(ROI[1][1]-1),:] = 0.0
-     numpyImageMask.tofile("Processed/threshold.%04d.dat" % timeID )
-     vtkImageMask = ConvertNumpyVTKImage( numpyImageMask , "theshold")
-   # check output
-   vtkWriter = vtk.vtkXMLImageDataWriter()
-   vtkWriter.SetFileName("Processed/threshold.%04d.vti" % timeID )
-   vtkWriter.SetInput( vtkImageMask )
-   vtkWriter.Update()
+   # read simulated data loss
+   vtkDropReader = vtk.vtkDataSetReader() 
+   vtkDropReader.SetFileName(dropFileNameTemplate % timeID ) 
+   vtkDropReader.Update() 
+   drop_cells = vtkDropReader.GetOutput() 
+   drop_array = vtkNumPy.vtk_to_numpy( drop_cells.GetPointData().GetArray(0) ) 
 
-   # pass pointer to c++
-   image_cells = vtkImageMask.GetPointData() 
-   data_array = vtkNumPy.vtk_to_numpy( image_cells.GetArray(0) ) 
+   # get mask data
+   vtkMaskReader = vtk.vtkDataSetReader() 
+   vtkMaskReader.SetFileName(maskFileNameTemplate % timeID ) 
+   vtkMaskReader.Update() 
+   mask_cells = vtkMaskReader.GetOutput() 
+   mask_array = vtkNumPy.vtk_to_numpy( mask_cells.GetPointData().GetArray(0) ) 
+
    # need to pass numpy array's w/ Fortran storage... ie painful to debug
-   v1 = PETSc.Vec().createWithArray(numpy.ravel(phase_curr,order='F'), comm=PETSc.COMM_SELF)
-   v2 = PETSc.Vec().createWithArray(data_array, comm=PETSc.COMM_SELF)
+   v1 = PETSc.Vec().createWithArray(orig_array, comm=PETSc.COMM_SELF)
+   v2 = PETSc.Vec().createWithArray(drop_array, comm=PETSc.COMM_SELF)
+   v3 = PETSc.Vec().createWithArray(mask_array, comm=PETSc.COMM_SELF)
 
    # Project imaging onto libMesh data structures
-   femImaging.ProjectImagingToFEMMesh("Background",0.0,v1,eqnSystems)  
-   femImaging.ProjectImagingToFEMMesh("ImageMask" ,0.0,v2,eqnSystems)  
+   femImaging.ProjectImagingToFEMMesh("OrigImage" ,0.0,v1,eqnSystems)  
+   femImaging.ProjectImagingToFEMMesh("Background",0.0,v2,eqnSystems)  
+   femImaging.ProjectImagingToFEMMesh("ImageMask" ,0.0,v3,eqnSystems)  
    bgSystem.SystemSolve( ) 
    exodusII_IO.WriteTimeStep(MeshOutputFile,eqnSystems, timeID+1, timeID )  
 
-   # get libMesh Background Solution as numpy data structure
-   maxwell_array = eqnSystems.GetSolutionVector( "Background" )[...]
-   maxwell_data  = phase_curr.copy()
-   # reshape from colume major Fortran-like storage
-   maxwell_data[ROI[0][0]:ROI[0][1],
-                ROI[1][0]:ROI[1][1],
-                ROI[2][0]:ROI[2][1]] = maxwell_array.reshape( npixelROI ,order='F')
-   # write numpy to disk in matlab
-   scipyio.savemat("Processed/background.%04d.mat"%(timeID), {'maxwell':maxwell_array} )
-   # check output
-   vtkTempImage = ConvertNumpyVTKImage(maxwell_data,"maxwell")
-   vtkWriterTmpTwo = vtk.vtkXMLImageDataWriter()
-   vtkWriterTmpTwo.SetFileName("Processed/maxwell.%04d.vti" % timeID )
-   vtkWriterTmpTwo.SetInput( vtkTempImage )
-   vtkWriterTmpTwo.Update()
+   ## FIXME: bug putting data back into imaging data structures
+   ##  # get libMesh Background Solution as numpy data structure
+   ##  maxwell_array = bgSystem.GetSolutionVector( )[...]
+   ##  maxwell_data  = phase_curr.copy()
+   ##  # reshape from colume major Fortran-like storage
+   ##  maxwell_data[ROI[0][0]+0:ROI[0][1]+0,
+   ##               ROI[1][0]+0:ROI[1][1]+0,
+   ##               ROI[2][0]+0:ROI[2][1]+0] = maxwell_array.reshape( npixelROI ,order='F')
+   ##  # write numpy to disk in matlab
+   ##  scipyio.savemat("Processed/background.%04d.mat"%(timeID), {'maxwell':maxwell_array} )
+   ##  # check output
+   ##  vtkTempImage = ConvertNumpyVTKImage(maxwell_data,"maxwell")
+   ##  vtkWriterTmpTwo = vtk.vtkXMLImageDataWriter()
+   ##  vtkWriterTmpTwo.SetFileName("Processed/maxwell.%04d.vti" % timeID )
+   ##  vtkWriterTmpTwo.SetInput( vtkTempImage )
+   ##  vtkWriterTmpTwo.Update()
 
-   # compute temperature difference
-   delta_temp =tmap_factor * ( phase_curr - maxwell_data ) 
+   ##  # compute temperature difference
+   ##  delta_temp =tmap_factor * ( phase_curr - maxwell_data ) 
 
-   # check output
-   vtkTempImage = ConvertNumpyVTKImage(delta_temp,"deltat")
-   vtkWriterTmpTwo = vtk.vtkXMLImageDataWriter()
-   vtkWriterTmpTwo.SetFileName("Processed/deltat.%04d.vti" % timeID )
-   vtkWriterTmpTwo.SetInput( vtkTempImage )
-   vtkWriterTmpTwo.Update()
+   ##  # check output
+   ##  vtkTempImage = ConvertNumpyVTKImage(delta_temp,"deltat")
+   ##  vtkWriterTmpTwo = vtk.vtkXMLImageDataWriter()
+   ##  vtkWriterTmpTwo.SetFileName("Processed/deltat.%04d.vti" % timeID )
+   ##  vtkWriterTmpTwo.SetInput( vtkTempImage )
+   ##  vtkWriterTmpTwo.Update()
 
