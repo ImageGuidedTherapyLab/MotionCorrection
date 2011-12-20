@@ -208,17 +208,21 @@ for timeID in range(0,ntime+1):
    femImaging.ProjectImagingToFEMMesh("ImageMask" ,0.0,v3,eqnSystems)  
    bgSystem.SystemSolve( ) 
    exodusII_IO.WriteTimeStep(MeshOutputFile,eqnSystems, timeID+1, timeID )  
+   # write numpy to disk in matlab
+   fem_orig_array = origSystem.GetSolutionVector( )[...]
+   fem_drop_array = bgSystem.GetSolutionVector( )[...]
+   fem_mask_array = maskSystem.GetSolutionVector( )[...]
+   scipyio.savemat("Processed/background.%04d.mat"%(timeID), {'pixelsize':npixelROI, 'original':fem_orig_array , 'drop':fem_drop_array , 'mask':fem_mask_array } )
+
+   
 
    ## FIXME: bug putting data back into imaging data structures
    ##  # get libMesh Background Solution as numpy data structure
-   ##  maxwell_array = bgSystem.GetSolutionVector( )[...]
    ##  maxwell_data  = phase_curr.copy()
    ##  # reshape from colume major Fortran-like storage
    ##  maxwell_data[ROI[0][0]+0:ROI[0][1]+0,
    ##               ROI[1][0]+0:ROI[1][1]+0,
    ##               ROI[2][0]+0:ROI[2][1]+0] = maxwell_array.reshape( npixelROI ,order='F')
-   ##  # write numpy to disk in matlab
-   ##  scipyio.savemat("Processed/background.%04d.mat"%(timeID), {'maxwell':maxwell_array} )
    ##  # check output
    ##  vtkTempImage = ConvertNumpyVTKImage(maxwell_data,"maxwell")
    ##  vtkWriterTmpTwo = vtk.vtkXMLImageDataWriter()
