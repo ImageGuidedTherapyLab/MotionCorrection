@@ -43,6 +43,8 @@ import vtk.util.numpy_support as vtkNumPy
 origFileNameTemplate = "/FUS4/data2/CABIR/BackgroundPhase19Dec2011/Processed/3DSPGRphase.%04d.vtk"
 dropFileNameTemplate = "/FUS4/data2/CABIR/BackgroundPhase19Dec2011/Processed/3DSPGRMSphase.%04d.vtk"
 maskFileNameTemplate = "/FUS4/data2/CABIR/BackgroundPhase19Dec2011/Processed/3DSPGRMSphasemask.%04d.vtk"
+dropFileNameTemplate = "/FUS4/data2/CABIR/BackgroundPhase19Dec2011/Processed/3DSPGRspherephase.%04d.vtk"
+maskFileNameTemplate = "/FUS4/data2/CABIR/BackgroundPhase19Dec2011/Processed/3DSPGRspherephasemask.%04d.vtk"
  
 
 # set the default reader based on extension
@@ -90,7 +92,7 @@ def GetNumpyPhaseData(filename):
   return phase_array.reshape(dimensions,order='F')
 
 # write a numpy data to disk in vtk format
-def ConvertNumpyVTKImage(NumpyImageData, arrayName  ):
+def ConvertNumpyVTKImage(NumpyImageData, arrayName , dim, vtkOrigin ):
   # Create initial image
   # imports raw data and stores it.
   dataImporter = vtk.vtkImageImport()
@@ -108,10 +110,10 @@ def ConvertNumpyVTKImage(NumpyImageData, arrayName  ):
   # simple case, all axes are of length 75 and begins with the first element. For other data, this is probably not the case.
   # I have to admit however, that I honestly dont know the difference between SetDataExtent() and SetWholeExtent() although
   # VTK complains if not both are used.
-  dataImporter.SetDataExtent( 0, dimensions[0]-1, 0, dimensions[1]-1, 0, dimensions[2]-1)
-  dataImporter.SetWholeExtent(0, dimensions[0]-1, 0, dimensions[1]-1, 0, dimensions[2]-1)
+  dataImporter.SetDataExtent( 0, dim[0]-1, 0, dim[1]-1, 0, dim[2]-1)
+  dataImporter.SetWholeExtent(0, dim[0]-1, 0, dim[1]-1, 0, dim[2]-1)
   dataImporter.SetDataSpacing( spacing )
-  dataImporter.SetDataOrigin(  origin  )
+  dataImporter.SetDataOrigin(  vtkOrigin  )
   dataImporter.SetScalarArrayName(  arrayName  )
   dataImporter.Update()
   return dataImporter.GetOutput()
@@ -130,6 +132,7 @@ femMesh = femLibrary.PylibMeshMesh()
 #       [ 0,29]]   # pixel # of zbounds
 ROI = [[120,140],[120,140],[20,29]]
 ROI = [[110,150],[110,150],[10,39]]
+ROI = [[95,160],[95,160],[18,40]]
 npixelROI = tuple( [ (pixel[1] - pixel[0] ) for pixel in ROI] )
 nelemROI  = [ (pixel[1] - pixel[0] - 1 ) for pixel in ROI] 
 if( nelemROI[2] < 0  ):
@@ -208,13 +211,27 @@ for timeID in range(0,ntime+1):
    femImaging.ProjectImagingToFEMMesh("ImageMask" ,0.0,v3,eqnSystems)  
    bgSystem.SystemSolve( ) 
    exodusII_IO.WriteTimeStep(MeshOutputFile,eqnSystems, timeID+1, timeID )  
+   # FIXME: The FEM ordering does not match the imaging
+   # FIXME:  Need to use exodus file for now
    # write numpy to disk in matlab
    fem_orig_array = origSystem.GetSolutionVector( )[...]
    fem_drop_array = bgSystem.GetSolutionVector( )[...]
    fem_mask_array = maskSystem.GetSolutionVector( )[...]
    scipyio.savemat("Processed/background.%04d.mat"%(timeID), {'pixelsize':npixelROI, 'original':fem_orig_array , 'drop':fem_drop_array , 'mask':fem_mask_array } )
 
+   # write numpy to vtk 
+   ROIOrigin = (xbounds[0],ybounds[0],zbounds[0])
+   vtkOrigImage = ConvertNumpyVTKImage(fem_orig_array, "orig" , npixelROI, ROIOrigin )
+   vtkOrigWriter = vtk.vtkDataSetWriter()
+   vtkOrigWriter.SetFileName("Processed/original.%04d.vtk" % timeID )
+   vtkOrigWriter.SetInput( vtkOrigImage )
+   vtkOrigWriter.Update()
    
+   vtkDropImage = ConvertNumpyVTKImage(fem_drop_array, "drop" , npixelROI, ROIOrigin )
+   vtkDropWriter = vtk.vtkDataSetWriter()
+   vtkDropWriter.SetFileName("Processed/drop.%04d.vtk" % timeID )
+   vtkDropWriter.SetInput( vtkDropImage )
+   vtkDropWriter.Update()
 
    ## FIXME: bug putting data back into imaging data structures
    ##  # get libMesh Background Solution as numpy data structure
